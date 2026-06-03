@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>保護者会 席割りアプリ</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif; }
+    body { margin: 0; background: #f6f7f9; color: #222; }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 20px; }
+    h1 { font-size: 1.45rem; margin: 0 0 12px; }
+    .card { background: white; border-radius: 16px; padding: 16px; margin: 14px 0; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+    label { display: block; font-weight: 700; margin: 12px 0 6px; }
+    input, textarea, button { font: inherit; }
+    input, textarea { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ccc; border-radius: 10px; }
+    textarea { min-height: 90px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button { border: 0; border-radius: 999px; padding: 12px 18px; font-weight: 700; cursor: pointer; }
+    .primary { background: #06c755; color: white; }
+    .secondary { background: #e9edf2; color: #222; }
+    .danger { color: #b00020; font-weight: 700; }
+    .tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    .table { border: 1px solid #e2e6ea; border-radius: 14px; padding: 12px; background: #fff; }
+    .table h3 { margin: 0 0 8px; font-size: 1.05rem; }
+    .officer { font-weight: 800; color: #0b7a38; }
+    .muted { color: #666; font-size: .92rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>保護者会 席割りアプリ</h1>
+    <p class="muted">テーブル数・座席数を入力すると、役員4名を別々のテーブルに配置し、一般保護者30名をランダムに席割りします。</p>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="tableCount">テーブル数</label>
+          <input id="tableCount" type="number" min="1" value="6">
+        </div>
+        <div>
+          <label for="seatCount">1テーブルあたりの座席数</label>
+          <input id="seatCount" type="number" min="1" value="6">
+        </div>
+      </div>
+
+      <label for="officers">役員参加者（1行に1名・4名）</label>
+      <textarea id="officers">役員1
+役員2
+役員3
+役員4</textarea>
+
+      <label for="parents">一般保護者（1行に1名・30名）</label>
+      <textarea id="parents">保護者1
+保護者2
+保護者3
+保護者4
+保護者5
+保護者6
+保護者7
+保護者8
+保護者9
+保護者10
+保護者11
+保護者12
+保護者13
+保護者14
+保護者15
+保護者16
+保護者17
+保護者18
+保護者19
+保護者20
+保護者21
+保護者22
+保護者23
+保護者24
+保護者25
+保護者26
+保護者27
+保護者28
+保護者29
+保護者30</textarea>
+
+      <div class="actions">
+        <button class="primary" onclick="makeSeating()">席割りを作成</button>
+        <button class="secondary" onclick="copyLineText()">LINE共有文をコピー</button>
+        <button class="secondary" onclick="resetNames()">初期名簿に戻す</button>
+      </div>
+      <p id="message"></p>
+    </div>
+
+    <div class="card">
+      <h2>席割り結果</h2>
+      <div id="result" class="tables"></div>
+    </div>
+
+    <div class="card">
+      <h2>LINE共有用テキスト</h2>
+      <textarea id="lineText" readonly placeholder="席割りを作成すると、ここに共有用テキストが出ます。"></textarea>
+    </div>
+  </div>
+
+<script>
+let latestText = "";
+
+function getLines(id) {
+  return document.getElementById(id).value
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function shuffle(array) {
+  const a = [...array];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function makeSeating() {
+  const tableCount = Number(document.getElementById("tableCount").value);
+  const seatCount = Number(document.getElementById("seatCount").value);
+  const officers = getLines("officers");
+  const parents = getLines("parents");
+  const message = document.getElementById("message");
+  const result = document.getElementById("result");
+
+  message.textContent = "";
+  message.className = "";
+  result.innerHTML = "";
+  latestText = "";
+  document.getElementById("lineText").value = "";
+
+  if (!Number.isInteger(tableCount) || tableCount < 1 || !Number.isInteger(seatCount) || seatCount < 1) {
+    showError("テーブル数と座席数を正しく入力してください。");
+    return;
+  }
+  if (tableCount < officers.length) {
+    showError("役員をバラバラにするには、テーブル数が役員人数以上必要です。");
+    return;
+  }
+  if (tableCount * seatCount < officers.length + parents.length) {
+    showError("座席数が足りません。テーブル数 × 座席数を参加人数以上にしてください。");
+    return;
+  }
+
+  const tables = Array.from({ length: tableCount }, (_, i) => ({ name: `テーブル${i + 1}`, members: [] }));
+
+  const shuffledTableIndexes = shuffle([...Array(tableCount).keys()]);
+  shuffle(officers).forEach((name, i) => {
+    tables[shuffledTableIndexes[i]].members.push({ name, role: "役員" });
+  });
+
+  const shuffledParents = shuffle(parents);
+  for (const name of shuffledParents) {
+    const candidates = tables
+      .map((t, i) => ({ i, count: t.members.length }))
+      .filter(x => x.count < seatCount)
+      .sort((a, b) => a.count - b.count || Math.random() - 0.5);
+    tables[candidates[0].i].members.push({ name, role: "一般" });
+  }
+
+  render(tables);
+}
+
+function render(tables) {
+  const result = document.getElementById("result");
+  const lines = ["【保護者会 席割り】"];
+
+  tables.forEach((t, idx) => {
+    const box = document.createElement("div");
+    box.className = "table";
+    const h = document.createElement("h3");
+    h.textContent = t.name;
+    box.appendChild(h);
+
+    const ul = document.createElement("ol");
+    t.members.forEach(m => {
+      const li = document.createElement("li");
+      li.textContent = m.role === "役員" ? `${m.name}（役員）` : m.name;
+      if (m.role === "役員") li.className = "officer";
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    result.appendChild(box);
+
+    lines.push("");
+    lines.push(`■ ${t.name}`);
+    t.members.forEach((m, i) => {
+      lines.push(`${i + 1}. ${m.role === "役員" ? `${m.name}（役員）` : m.name}`);
+    });
+  });
+
+  latestText = lines.join("\n");
+  document.getElementById("lineText").value = latestText;
+  const message = document.getElementById("message");
+  message.textContent = "席割りを作成しました。必要ならもう一度押すと再シャッフルできます。";
+}
+
+async function copyLineText() {
+  const text = document.getElementById("lineText").value;
+  if (!text) {
+    showError("先に席割りを作成してください。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    const message = document.getElementById("message");
+    message.className = "";
+    message.textContent = "コピーしました。LINEのオープンチャットに貼り付けて共有できます。";
+  } catch (e) {
+    document.getElementById("lineText").select();
+    showError("自動コピーできませんでした。共有用テキストを選択してコピーしてください。");
+  }
+}
+
+function resetNames() {
+  document.getElementById("officers").value = ["役員1","役員2","役員3","役員4"].join("\n");
+  document.getElementById("parents").value = Array.from({length:30}, (_,i)=>`保護者${i+1}`).join("\n");
+}
+
+function showError(text) {
+  const message = document.getElementById("message");
+  message.className = "danger";
+  message.textContent = text;
+}
+</script>
+</body>
+</html>
